@@ -128,7 +128,7 @@ let skills=JSON.parse(localStorage.getItem("golf_skills"))||[
 let reviews=JSON.parse(localStorage.getItem("golf_reviews"))||[];
 
 let st={screen:"map",selId:null,editTab:"status",planMode:"goal",topicId:null,
-  plan:{baseIds:[],bodyId:null,extIds:[]},reviewMonthOffset:0,
+  plan:{baseIds:[],bodyId:null,extIds:[]},reviewYear:new Date().getFullYear(),reviewMonth:new Date().getMonth(),reviewSelectedDayKey:null,
   addType:"base",addMastery:"notyet",addPrereqs:[]};
 
 function saveAll(){localStorage.setItem("golf_skills",JSON.stringify(skills));localStorage.setItem("golf_reviews",JSON.stringify(reviews));}
@@ -265,39 +265,48 @@ function saveReview(){
   reviews.unshift(entry);saveAll();showScreen('review');
 }
 function reviewStats(){
-  const base=new Date();base.setMonth(base.getMonth()+st.reviewMonthOffset);
-  const yy=base.getFullYear(),mm=base.getMonth();
+  const yy=st.reviewYear,mm=st.reviewMonth;
   const norm=reviews.map(normalizeReview);
   const byDay={};norm.forEach(r=>{byDay[r.dayKey]=(byDay[r.dayKey]||0)+1;});
   let streak=0;
   for(let i=0;i<365;i++){const d=new Date();d.setDate(d.getDate()-i);const k=d.toISOString().slice(0,10);if(byDay[k])streak++;else break;}
   const monthRows=norm.filter(r=>{const d=new Date(r.dayKey);return d.getFullYear()===yy&&d.getMonth()===mm;});
-  return {yy,mm,streak,monthCount:monthRows.length,monthBalls:monthRows.reduce((a,b)=>a+(Number(b.balls)||0),0),norm};
+  return {yy,mm,streak,monthCount:monthRows.length,monthBalls:monthRows.reduce((a,b)=>a+(Number(b.balls)||0),0),norm,monthRows};
 }
+function selectReviewDay(dayKey){st.reviewSelectedDayKey=st.reviewSelectedDayKey===dayKey?null:dayKey;renderReviews();}
 function renderCalendar(yy,mm,norm){
   const first=new Date(yy,mm,1),last=new Date(yy,mm+1,0),start=first.getDay();
   const map={};
   norm.forEach(r=>{const d=new Date(r.dayKey);if(d.getFullYear()===yy&&d.getMonth()===mm){const dd=d.getDate();if(!map[dd])map[dd]={count:0,balls:0};map[dd].count++;map[dd].balls+=(Number(r.balls)||0);}});
   const cells=[];for(let i=0;i<start;i++)cells.push('<div class="cal-cell off"></div>');
-  for(let d=1;d<=last.getDate();d++){const v=map[d];cells.push(`<div class="cal-cell ${v?'on':''}"><div>${d}</div>${v?`<div>${v.count}回</div><div>${v.balls}球</div>`:''}</div>`);}
-  return `<div class="rv-card"><div class="cal-head"><button class="cal-btn" onclick="moveReviewMonth(-1)">‹</button><div>${yy}年${mm+1}月</div><button class="cal-btn" onclick="moveReviewMonth(1)">›</button></div><div class="week-row"><div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div></div><div class="cal-grid">${cells.join("")}</div></div>`;
+  for(let d=1;d<=last.getDate();d++){
+    const v=map[d];
+    const dayKey=`${yy}-${String(mm+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const sel=st.reviewSelectedDayKey===dayKey?' style="outline:2px solid #818cf8"':'';
+    cells.push(`<div class="cal-cell ${v?'on':''}" ${sel} onclick="selectReviewDay('${dayKey}')"><div>${d}</div>${v?`<div>${v.count}回</div><div>${v.balls}球</div>`:''}</div>`);
+  }
+  return `<div class="rv-card"><div class="cal-head"><button class="cal-btn" onclick="moveReviewYear(-1)">«年</button><button class="cal-btn" onclick="moveReviewMonth(-1)">‹月</button><div>${yy}年${mm+1}月</div><button class="cal-btn" onclick="moveReviewMonth(1)">月›</button><button class="cal-btn" onclick="moveReviewYear(1)">年»</button></div><div style="font-size:9px;color:#64748b;margin-bottom:4px">日付を選ぶとその日の振り返りだけ表示（再タップで解除）</div><div class="week-row"><div>日</div><div>月</div><div>火</div><div>水</div><div>木</div><div>金</div><div>土</div></div><div class="cal-grid">${cells.join("")}</div></div>`;
 }
-function renderHistory(norm){
-  const agg={};norm.forEach(r=>r.items.forEach(it=>{const k=it.label||it.id||"(不明)";if(!agg[k])agg[k]={done:0,no:0};if(it.result==="done")agg[k].done++;else agg[k].no++;}));
-  const rows=Object.entries(agg).sort((a,b)=>(b[1].done+b[1].no)-(a[1].done+a[1].no)).slice(0,8);
-  if(!rows.length)return `<div class="rv-empty">まだ履歴がありません</div>`;
-  const max=Math.max(...rows.map(([,v])=>v.done+v.no),1);
-  return `<div class="rv-card"><div class="lbl">📊 スキル別登録回数（できた/できなかった）</div><div class="hist">${rows.map(([k,v])=>`<div class="hist-row"><div style="font-size:9px">${k}</div><div class="hist-track"><div class="hist-done" style="width:${(v.done/max)*100}%"></div><div class="hist-no" style="width:${(v.no/max)*100}%"></div></div><div style="font-size:9px">${v.done+v.no}</div></div>`).join("")}</div></div>`;
+function renderHistory(rows){
+  const agg={};rows.forEach(r=>r.items.forEach(it=>{const k=it.label||it.id||"(不明)";if(!agg[k])agg[k]={done:0,no:0};if(it.result==="done")agg[k].done++;else agg[k].no++;}));
+  const rows2=Object.entries(agg).sort((a,b)=>(b[1].done+b[1].no)-(a[1].done+a[1].no)).slice(0,8);
+  if(!rows2.length)return `<div class="rv-empty">この月の履歴はありません</div>`;
+  const max=Math.max(...rows2.map(([,v])=>v.done+v.no),1);
+  return `<div class="rv-card"><div class="lbl">📊 スキル別登録回数（この月 / できた・できなかった）</div><div class="hist">${rows2.map(([k,v])=>`<div class="hist-row"><div style="font-size:9px">${k}</div><div class="hist-track"><div class="hist-done" style="width:${(v.done/max)*100}%"></div><div class="hist-no" style="width:${(v.no/max)*100}%"></div></div><div style="font-size:9px">${v.done+v.no}</div></div>`).join("")}</div></div>`;
 }
 function setReviewResult(id,idx,res){reviews=reviews.map(r=>{const n=normalizeReview(r);if(n.id!==id)return n;n.items[idx]={...n.items[idx],result:res};return n;});saveAll();renderReviews();}
 function updReview(id,p){reviews=reviews.map(r=>{const n=normalizeReview(r);return n.id===id?{...n,...p}:n;});saveAll();}
 function delReview(id){if(confirm("削除しますか？")){reviews=reviews.map(normalizeReview).filter(r=>r.id!==id);saveAll();renderReviews();}}
-function moveReviewMonth(step){st.reviewMonthOffset+=step;renderReviews();}
+function moveReviewMonth(step){
+  const d=new Date(st.reviewYear,st.reviewMonth+step,1);st.reviewYear=d.getFullYear();st.reviewMonth=d.getMonth();st.reviewSelectedDayKey=null;renderReviews();
+}
+function moveReviewYear(step){st.reviewYear+=step;st.reviewSelectedDayKey=null;renderReviews();}
 function renderReviews(){
-  const {yy,mm,streak,monthCount,monthBalls,norm}=reviewStats();
+  const {yy,mm,streak,monthCount,monthBalls,norm,monthRows}=reviewStats();
   const rl=document.getElementById("review-list");
-  const cards=norm.map(rv=>`<div class="rv-card"><div style="display:flex;justify-content:space-between"><div class="rv-date">${rv.date}</div><button onclick="delReview(${rv.id})" style="background:none;border:none;color:#475569;font-size:12px;cursor:pointer">✕</button></div>${rv.topic?`<div class="rv-topic">${rv.topic}</div>`:''}<div class="lbl">打ったボール数</div><input class="inp" type="number" min="0" value="${rv.balls||0}" onchange="updReview(${rv.id},{balls:Number(this.value)||0});renderReviews()">${rv.items.map((it,i)=>`<div class="rv-skill-row"><span style="font-size:10px">${it.label||it.id}</span><div class="rv-seg"><button class="${it.result==='done'?'on-done':''}" onclick="setReviewResult(${rv.id},${i},'done')">できた</button><button class="${it.result!=='done'?'on-no':''}" onclick="setReviewResult(${rv.id},${i},'notyet')">できなかった</button></div></div>`).join('')}<div class="rv-memo-area"><div class="lbl">振り返りメモ</div><textarea class="rv-memo" onchange="updReview(${rv.id},{memo:this.value})" placeholder="気づき・反省点など…">${rv.memo||''}</textarea></div></div>`).join("");
-  rl.innerHTML=`<div class="stats-grid"><div class="stat-card"><div class="stat-v">${streak}</div><div class="stat-l">日間連続練習達成！</div></div><div class="stat-card"><div class="stat-v">${monthCount}</div><div class="stat-l">この月は${monthCount}回練習</div></div><div class="stat-card"><div class="stat-v">${monthBalls}</div><div class="stat-l">打ったボールの数</div></div></div>${renderCalendar(yy,mm,norm)}${renderHistory(norm)}${cards||'<div class="rv-empty">振り返り履歴はありません。<br>練習プランを作成して保存してください。</div>'}`;
+  const visibleRows=st.reviewSelectedDayKey?monthRows.filter(rv=>rv.dayKey===st.reviewSelectedDayKey):monthRows;
+  const cards=visibleRows.map(rv=>`<div class="rv-card"><div style="display:flex;justify-content:space-between"><div class="rv-date">${rv.date}</div><button onclick="delReview(${rv.id})" style="background:none;border:none;color:#475569;font-size:12px;cursor:pointer">✕</button></div>${rv.topic?`<div class="rv-topic">${rv.topic}</div>`:''}<div class="lbl">打ったボール数</div><input class="inp" type="number" min="0" value="${rv.balls||0}" onchange="updReview(${rv.id},{balls:Number(this.value)||0});renderReviews()">${rv.items.map((it,i)=>`<div class="rv-skill-row"><span style="font-size:10px">${it.label||it.id}</span><div class="rv-seg"><button class="${it.result==='done'?'on-done':''}" onclick="setReviewResult(${rv.id},${i},'done')">できた</button><button class="${it.result!=='done'?'on-no':''}" onclick="setReviewResult(${rv.id},${i},'notyet')">できなかった</button></div></div>`).join('')}<div class="rv-memo-area"><div class="lbl">振り返りメモ</div><textarea class="rv-memo" onchange="updReview(${rv.id},{memo:this.value})" placeholder="気づき・反省点など…">${rv.memo||''}</textarea></div></div>`).join("");
+  rl.innerHTML=`<div class="stats-grid"><div class="stat-card"><div class="stat-v">${streak}</div><div class="stat-l">日間連続練習達成！</div></div><div class="stat-card"><div class="stat-v">${monthCount}</div><div class="stat-l">この月は${monthCount}回練習</div></div><div class="stat-card"><div class="stat-v">${monthBalls}</div><div class="stat-l">打ったボールの数</div></div></div>${renderCalendar(yy,mm,norm)}${renderHistory(monthRows)}${cards||'<div class="rv-empty">選択日の振り返りはありません。</div>'}`;
 }
 
 function getApiKey(){let k=localStorage.getItem("golf_ai_key");if(!k){k=prompt("Anthropic API キーを入力してください（保存されます）");if(k)localStorage.setItem("golf_ai_key",k);}return k;}
